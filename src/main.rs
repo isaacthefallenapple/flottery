@@ -25,7 +25,13 @@ enum Message {
     JoinRaffle {
         raffle_id: RaffleId,
         user_id: UserId,
+        user_handle: Sender<UserMessage>,
     },
+}
+
+enum UserMessage {
+    Joined(String),
+    Rejoined(String),
 }
 
 async fn operator(mut channel: Receiver<Message>) {
@@ -38,20 +44,40 @@ async fn operator(mut channel: Receiver<Message>) {
                 raffles.insert(id, tx);
                 tokio::spawn(handle_raffle(rx));
             }
-            Message::JoinRaffle { raffle_id, user_id } => {
+            Message::JoinRaffle {
+                raffle_id,
+                user_id,
+                user_handle,
+            } => {
                 if let Some(raffle) = raffles.get(&raffle_id) {
-                    raffle.send(user_id).await.unwrap();
+                    raffle.send((user_id, user_handle)).await.unwrap();
                 }
             }
         }
     }
 }
 
-async fn handle_raffle(mut channel: Receiver<UserId>) {
-    let mut users = HashSet::new();
-    while let Some(user) = channel.recv().await {
-        println!("{}", user.0);
-        users.insert(user);
+async fn handle_raffle(mut channel: Receiver<(UserId, Sender<UserMessage>)>) {
+    use std::collections::hash_map::Entry;
+    let mut users = HashMap::new();
+    while let Some((user, handle)) = channel.recv().await {
+        let number = users.len() + 1;
+        match users.entry(user) {
+            Entry::Vacant(entry) => {
+                entry.insert(number);
+                handle
+                    .send(UserMessage::Joined(number.to_string()))
+                    .await
+                    .unwrap();
+            }
+            Entry::Occupied(entry) => {
+                let number = entry.get();
+                handle
+                    .send(UserMessage::Rejoined(number.to_string()))
+                    .await
+                    .unwrap();
+            }
+        }
     }
 }
 
@@ -79,14 +105,20 @@ async fn join(
     req: Request<Body>,
 ) -> String {
     let id = remote_addr(&req).unwrap().to_owned();
-    let message = format!("You joined raffle {id}");
 
+    let (tx, mut rx) = mpsc::channel(8);
     ch.send(Message::JoinRaffle {
         raffle_id: RaffleId(raffle),
-        user_id: UserId(id),
+        user_id: UserId(id.clone()),
+        user_handle: tx,
     })
     .await
     .unwrap();
+
+    let message = match rx.recv().await.unwrap() {
+        UserMessage::Joined(s) => format!("You joined raffle {id} and are number {s}!"),
+        UserMessage::Rejoined(s) => format!("Welcome back to raffle {id}, number {s}!"),
+    };
 
     message
 }
