@@ -60,10 +60,11 @@ async fn hello_world() -> &'static str {
 }
 
 async fn new(State(ch): State<Sender<Message>>) -> impl IntoResponse {
-    let id = ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let id = RaffleId(id.to_string());
-    ch.send(Message::NewRaffle(id.clone())).await.unwrap();
-    let code = qrcode::QrCode::new(format!("https://fluffle.shuttleapp.rs/join/{}", id.0)).unwrap();
+    let id = cool_id_generator::get_id(cool_id_generator::Size::Medium);
+    let id = RaffleId(id);
+    let redirect = format!("https://flottery.shuttleapp.rs/join/{}", id.0);
+    ch.send(Message::NewRaffle(id)).await.unwrap();
+    let code = qrcode::QrCode::new(redirect).unwrap();
     let svg = code.render::<qrcode::render::svg::Color>().build();
     let mut response = svg.into_response();
     response
@@ -72,14 +73,22 @@ async fn new(State(ch): State<Sender<Message>>) -> impl IntoResponse {
     response
 }
 
-async fn join(Path(raffle): Path<String>, State(ch): State<Sender<Message>>, req: Request<Body>) {
+async fn join(
+    Path(raffle): Path<String>,
+    State(ch): State<Sender<Message>>,
+    req: Request<Body>,
+) -> String {
     let id = remote_addr(&req).unwrap().to_owned();
+    let message = format!("You joined raffle {id}");
+
     ch.send(Message::JoinRaffle {
         raffle_id: RaffleId(raffle),
         user_id: UserId(id),
     })
     .await
     .unwrap();
+
+    message
 }
 
 fn remote_addr(req: &Request<Body>) -> Option<&str> {
