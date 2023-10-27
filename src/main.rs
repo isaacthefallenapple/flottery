@@ -108,7 +108,7 @@ async fn join(
 
     let (tx, mut rx) = mpsc::channel(8);
     ch.send(Message::JoinRaffle {
-        raffle_id: RaffleId(raffle),
+        raffle_id: RaffleId(raffle.clone()),
         user_id: UserId(id.clone()),
         user_handle: tx,
     })
@@ -116,8 +116,8 @@ async fn join(
     .unwrap();
 
     let message = match rx.recv().await.unwrap() {
-        UserMessage::Joined(s) => format!("You joined raffle {id} and are number {s}!"),
-        UserMessage::Rejoined(s) => format!("Welcome back to raffle {id}, number {s}!"),
+        UserMessage::Joined(s) => format!("You joined raffle {} and are number {s}!", raffle),
+        UserMessage::Rejoined(s) => format!("Welcome back to raffle {}, number {s}!", raffle),
     };
 
     message
